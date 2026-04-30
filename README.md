@@ -30,7 +30,7 @@ conda install -c conda-forge rdkit
 ## Installation
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/scaffold-tuner.git
+git clone https://github.com/tesaki1101/scaffold-tuner.git
 cd scaffold-tuner
 ```
 
