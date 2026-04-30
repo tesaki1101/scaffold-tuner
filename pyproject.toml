@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "scaffold-tuner"
+version = "0.1.0"
+description = "A toolkit for proposing structurally modified drug-like molecules based on Murcko scaffolds"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.8"
+dependencies = [
+    "rdkit>=2022.09.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/tesaki1101/scaffold-tuner"
