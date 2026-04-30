@@ -278,6 +278,7 @@ def propose_structures(
     shuffle_sites=False,
     shuffle_fragments=False,
     random_seed=None,
+    strict=False,
 ):
     """
     親分子の特徴量を1つ増減させた候補構造を提案する。
@@ -302,6 +303,7 @@ def propose_structures(
     shuffle_sites    : True のとき部位をランダム順で探索
     shuffle_fragments: True のとき置換基候補をランダム順で探索
     random_seed      : 乱数シード
+    strict           : True のとき、対象特徴量だけが変化し他は変化しない候補のみを返す
     """
     if mode not in _MODE_CONFIG:
         raise ValueError(f"mode は {list(_MODE_CONFIG.keys())} のいずれかを指定してください")
@@ -346,7 +348,13 @@ def propose_structures(
 
                 gen_feats = count_features(gen_mol)
                 # 対象特徴量が direction の方向に変化しているかチェック
-                if direction * gen_feats[feat_idx] > direction * parent_feats[feat_idx]:
+                # strict=True のときは他の特徴量が一切変化していないことも確認
+                other_unchanged = all(
+                    gen_feats[i] == parent_feats[i]
+                    for i in range(len(parent_feats)) if i != feat_idx
+                )
+                if (direction * gen_feats[feat_idx] > direction * parent_feats[feat_idx]
+                        and (not strict or other_unchanged)):
                     results.append({
                         "mode": mode,
                         "site": site,
