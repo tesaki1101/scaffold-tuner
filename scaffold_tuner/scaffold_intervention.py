@@ -6,33 +6,35 @@ from rdkit.Chem.Scaffolds import MurckoScaffold
 
 
 # ──────────────────────────────────────────────
-# 1. 親分子 → Murcko コア（Rラベル付き）
+# 1. Parent molecule → Murcko core with R-group labels
 # ──────────────────────────────────────────────
 def make_murcko_core_with_rlabels(parent_smiles, max_cuts=None):
     """
-    親分子SMILESから Murcko scaffold を作り、
-    サイドチェーンとの境界に [*:1], [*:2], ... を付けたコアを返す。
+    Generate the Murcko scaffold from the parent molecule SMILES and
+    return the core with attachment point labels [*:1], [*:2], ... at
+    each scaffold-sidechain boundary.
 
     Returns: (parent_mol, scaffold_mol, core_with_labels)
     """
     parent_mol = Chem.MolFromSmiles(parent_smiles)
     if parent_mol is None:
-        raise ValueError("無効な親分子SMILESです")
+        raise ValueError("Invalid parent SMILES.")
 
     scaffold_mol = MurckoScaffold.GetScaffoldForMol(parent_mol)
     if scaffold_mol is None:
-        raise ValueError("Murcko scaffoldの生成に失敗しました")
+        raise ValueError("Failed to generate Murcko scaffold.")
 
     matches = parent_mol.GetSubstructMatches(scaffold_mol)
     if not matches:
-        raise ValueError("Murcko scaffoldが親分子にマッチしませんでした")
+        raise ValueError("Murcko scaffold did not match the parent molecule.")
 
-    # scaffold に含まれる親分子の原子インデックスと、その逆引きマップ
+    # Atom indices in the parent molecule that belong to the scaffold,
+    # and a reverse mapping from parent index to scaffold index
     match = matches[0]
     core_atom_idxs = set(match)
     parent_to_core = {p: c for c, p in enumerate(match)}
 
-    # コアとサイドチェーンをまたぐ結合（境界結合）を収集
+    # Collect bonds that cross the scaffold-sidechain boundary
     boundary_bonds = [
         b for b in parent_mol.GetBonds()
         if (b.GetBeginAtomIdx() in core_atom_idxs) ^ (b.GetEndAtomIdx() in core_atom_idxs)
@@ -40,14 +42,14 @@ def make_murcko_core_with_rlabels(parent_smiles, max_cuts=None):
     if max_cuts is not None:
         boundary_bonds = boundary_bonds[:max_cuts]
 
-    # 境界結合ごとに、コア側原子へダミー原子 [*:N] を追加
+    # For each boundary bond, add a dummy atom [*:N] to the scaffold-side atom
     rw_core = Chem.RWMol(scaffold_mol)
     for rlabel, bond in enumerate(boundary_bonds, start=1):
         a1, a2 = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
         core_parent_idx = a1 if a1 in core_atom_idxs else a2
         core_idx = parent_to_core[core_parent_idx]
 
-        dummy = Chem.Atom(0)          # ダミー原子 *
+        dummy = Chem.Atom(0)          # dummy atom *
         dummy.SetAtomMapNum(rlabel)
         dummy_idx = rw_core.AddAtom(dummy)
         rw_core.AddBond(core_idx, dummy_idx, bond.GetBondType())
@@ -58,10 +60,10 @@ def make_murcko_core_with_rlabels(parent_smiles, max_cuts=None):
 
 
 # ──────────────────────────────────────────────
-# 2. ユーティリティ
+# 2. Utilities
 # ──────────────────────────────────────────────
 def count_features(mol):
-    """HBA, HBD, 芳香環数, 回転可能結合数, ヘテロ原子数 をタプルで返す"""
+    """Return a tuple of (HBA, HBD, NumAromaticRings, NumRotatableBonds, NumHeteroatoms)."""
     return (
         Lipinski.NumHAcceptors(mol),
         Lipinski.NumHDonors(mol),
@@ -72,7 +74,7 @@ def count_features(mol):
 
 
 def get_r_labels(core_mol):
-    """コア中のダミー原子 [*:N] の map番号リストを返す"""
+    """Return a sorted list of atom map numbers for all dummy atoms [*:N] in the core."""
     return sorted({
         atom.GetAtomMapNum()
         for atom in core_mol.GetAtoms()
@@ -81,15 +83,16 @@ def get_r_labels(core_mol):
 
 
 # ──────────────────────────────────────────────
-# 3. 親分子から元のRグループを取得
+# 3. Extract the original R-groups from the parent molecule
 # ──────────────────────────────────────────────
 def get_original_rgroups(parent_smiles, core_with_labels):
     """
-    Rグループ分解により、親分子の各置換基を {"R1": SMILES, ...} で返す
+    Perform R-group decomposition on the parent molecule and return
+    each substituent as {"R1": SMILES, "R2": SMILES, ...}.
     """
     parent_mol = Chem.MolFromSmiles(parent_smiles)
     if parent_mol is None:
-        raise ValueError("無効な親分子SMILESです")
+        raise ValueError("Invalid parent SMILES.")
 
     params = rdRGroupDecomposition.RGroupDecompositionParameters()
     params.labels = rdRGroupDecomposition.RGroupLabels.AtomMapLabels
@@ -98,15 +101,15 @@ def get_original_rgroups(parent_smiles, core_with_labels):
 
     rgd = rdRGroupDecomposition.RGroupDecomposition(core_with_labels, params)
     if rgd.Add(parent_mol) < 0:
-        raise ValueError("RGroupDecomposition.Add() が失敗しました")
+        raise ValueError("RGroupDecomposition.Add() failed.")
     if not rgd.Process():
-        raise RuntimeError("RGroupDecomposition.Process() が失敗しました")
+        raise RuntimeError("RGroupDecomposition.Process() failed.")
 
     rows = rgd.GetRGroupsAsRows()
     if not rows:
-        raise RuntimeError("Rグループ分解の結果が得られませんでした")
+        raise RuntimeError("No R-group decomposition result was obtained.")
 
-    # "Core" キーを除き、SMILESに変換して返す
+    # Exclude the "Core" key and convert each R-group molecule to SMILES
     return {
         key: Chem.MolToSmiles(mol)
         for key, mol in rows[0].items()
@@ -115,20 +118,20 @@ def get_original_rgroups(parent_smiles, core_with_labels):
 
 
 # ──────────────────────────────────────────────
-# 4. フラグメントの結合
+# 4. Fragment attachment
 # ──────────────────────────────────────────────
 def _get_dummy_info(mol, map_num):
-    """[*:map_num] のダミー原子を探し (dummy_idx, neighbor_idx, bond_type) を返す"""
+    """Find the dummy atom [*:map_num] and return (dummy_idx, neighbor_idx, bond_type)."""
     for atom in mol.GetAtoms():
         if atom.GetAtomicNum() == 0 and atom.GetAtomMapNum() == map_num:
             nbr = atom.GetNeighbors()[0]
             bond = mol.GetBondBetweenAtoms(atom.GetIdx(), nbr.GetIdx())
             return atom.GetIdx(), nbr.GetIdx(), bond.GetBondType()
-    raise ValueError(f"ダミー原子 [*:{map_num}] が見つかりません")
+    raise ValueError(f"Dummy atom [*:{map_num}] not found.")
 
 
 def attach_fragment(scaffold_mol, fragment_mol, map_num):
-    """scaffold と fragment の [*:map_num] 同士を結合し、ダミー原子を除去する"""
+    """Connect the [*:map_num] attachment points of scaffold and fragment, then remove the dummy atoms."""
     s_dummy, s_nbr, s_bond = _get_dummy_info(scaffold_mol, map_num)
     f_dummy, f_nbr, _      = _get_dummy_info(fragment_mol, map_num)
 
@@ -136,7 +139,7 @@ def attach_fragment(scaffold_mol, fragment_mol, map_num):
     emol = Chem.EditableMol(Chem.CombineMols(scaffold_mol, fragment_mol))
     emol.AddBond(s_nbr, f_nbr + offset, order=s_bond)
 
-    # インデックスがずれないよう大きい方から削除
+    # Remove dummy atoms from the higher index first to avoid index shifting
     for idx in sorted([s_dummy, f_dummy + offset], reverse=True):
         emol.RemoveAtom(idx)
 
@@ -147,106 +150,108 @@ def attach_fragment(scaffold_mol, fragment_mol, map_num):
 
 def build_molecule(scaffold_smiles, rgroups):
     """
-    scaffold_smiles に対して rgroups（例: {"R1": "[*:1]N", "R2": "[*:2]OC"}）を順に結合する
+    Attach all R-groups in rgroups (e.g., {"R1": "[*:1]N", "R2": "[*:2]OC"})
+    to scaffold_smiles in ascending order of R-group number.
     """
     mol = Chem.MolFromSmiles(scaffold_smiles)
     if mol is None:
-        raise ValueError("無効なscaffold SMILESです")
+        raise ValueError("Invalid scaffold SMILES.")
 
-    # R番号の昇順に結合（順序依存を避けるため）
+    # Attach in ascending R-group number order to avoid order dependency
     for site in sorted(rgroups, key=lambda x: int(x[1:])):
         frag = Chem.MolFromSmiles(rgroups[site])
         if frag is None:
-            raise ValueError(f"無効なフラグメントSMILES: {rgroups[site]}")
+            raise ValueError(f"Invalid fragment SMILES: {rgroups[site]}")
         mol = attach_fragment(mol, frag, int(site[1:]))
     return mol
 
 
 # ──────────────────────────────────────────────
-# 5. 各特徴量を増減させる置換基プール
+# 5. Fragment pools for increasing/decreasing each descriptor
 # ──────────────────────────────────────────────
 
-# [*:1] をテンプレートとして定義し、使用時に map_num へ置き換える
+# All templates use [*:1] as the attachment point placeholder.
+# At runtime, [*:1] is replaced with the actual R-group label [*:N].
 _FRAGMENT_TEMPLATES = {
-    # HBD（水素結合ドナー）
+    # HBD (hydrogen bond donors)
     "add_hbd": [
-        "[*:1]N",           # アミノ基
-        "[*:1]NC",          # メチルアミノ基
-        "[*:1]O",           # ヒドロキシ基
-        "[*:1]NS(=O)(=O)C", # スルホンアミド様
+        "[*:1]N",           # amino
+        "[*:1]NC",          # methylamino
+        "[*:1]O",           # hydroxy
+        "[*:1]NS(=O)(=O)C", # sulfonamide-like
     ],
     "remove_hbd": [
-        "[*:1]C",           # メチル基（HBDなし）
-        "[*:1]CC",          # エチル基（HBDなし）
-        "[*:1]F",           # フルオロ基（HBDなし）
-        "[*:1]Cl",          # クロロ基（HBDなし）
-        "[*:1]C(C)C",       # イソプロピル基（HBDなし）
+        "[*:1]C",           # methyl (no HBD)
+        "[*:1]CC",          # ethyl (no HBD)
+        "[*:1]F",           # fluoro (no HBD)
+        "[*:1]Cl",          # chloro (no HBD)
+        "[*:1]C(C)C",       # isopropyl (no HBD)
     ],
-    # HBA（水素結合アクセプター）
+    # HBA (hydrogen bond acceptors)
     "add_hba": [
-        "[*:1]F",           # フルオロ基
-        "[*:1]OC",          # メトキシ基
-        "[*:1]C#N",         # シアノ基
-        "[*:1]C(=O)C",      # ケトン様
-        "[*:1]N(C)C",       # 三級アミン
+        "[*:1]F",           # fluoro
+        "[*:1]OC",          # methoxy
+        "[*:1]C#N",         # cyano
+        "[*:1]C(=O)C",      # keto-like
+        "[*:1]N(C)C",       # tertiary amine
     ],
     "remove_hba": [
-        "[*:1]C",           # メチル基（HBAなし）
-        "[*:1]CC",          # エチル基（HBAなし）
-        "[*:1]F",           # フルオロ基（HBAとして数えられない場合が多い）
-        "[*:1]Cl",          # クロロ基（HBAなし）
-        "[*:1]c1ccccc1",    # フェニル基（HBAなし）
+        "[*:1]C",           # methyl (no HBA)
+        "[*:1]CC",          # ethyl (no HBA)
+        "[*:1]F",           # fluoro (counted as HBA=0 by RDKit in most cases)
+        "[*:1]Cl",          # chloro (no HBA)
+        "[*:1]c1ccccc1",    # phenyl (no HBA)
     ],
-    # 芳香環数（NumAromaticRings）
+    # NumAromaticRings
     "add_ar": [
-        "[*:1]c1ccccc1",    # フェニル基
-        "[*:1]c1ccncc1",    # ピリジル基
-        "[*:1]c1ccco1",     # 2-フラニル基
-        "[*:1]c1cccs1",     # 2-チエニル基
+        "[*:1]c1ccccc1",    # phenyl
+        "[*:1]c1ccncc1",    # pyridyl
+        "[*:1]c1ccco1",     # 2-furyl
+        "[*:1]c1cccs1",     # 2-thienyl
     ],
     "remove_ar": [
-        "[*:1]C",           # メチル基（芳香環なし）
-        "[*:1]CC",          # エチル基（芳香環なし）
-        "[*:1]CCC",         # プロピル基（芳香環なし）
-        "[*:1]C(C)C",       # イソプロピル基（芳香環なし）
-        "[*:1]C1CCCCC1",    # シクロヘキシル基（芳香環なし）
+        "[*:1]C",           # methyl (no aromatic ring)
+        "[*:1]CC",          # ethyl (no aromatic ring)
+        "[*:1]CCC",         # propyl (no aromatic ring)
+        "[*:1]C(C)C",       # isopropyl (no aromatic ring)
+        "[*:1]C1CCCCC1",    # cyclohexyl (no aromatic ring)
     ],
-    # 回転可能結合数（NumRotatableBonds）
+    # NumRotatableBonds
     "add_rb": [
-        "[*:1]CC",          # エチル基（回転可能結合+1）
-        "[*:1]CCC",         # プロピル基（回転可能結合+2）
-        "[*:1]CCCC",        # ブチル基（回転可能結合+3）
-        "[*:1]COC",         # メトキシメチル基（回転可能結合+2）
-        "[*:1]CC(=O)C",     # アセトニル基（回転可能結合+2）
+        "[*:1]CC",          # ethyl (+1 rotatable bond)
+        "[*:1]CCC",         # propyl (+2 rotatable bonds)
+        "[*:1]CCCC",        # butyl (+3 rotatable bonds)
+        "[*:1]COC",         # methoxymethyl (+2 rotatable bonds)
+        "[*:1]CC(=O)C",     # acetonyl (+2 rotatable bonds)
     ],
     "remove_rb": [
-        "[*:1]C",           # メチル基（回転可能結合なし）
-        "[*:1]F",           # フルオロ基（回転可能結合なし）
-        "[*:1]Cl",          # クロロ基（回転可能結合なし）
-        "[*:1]C1CC1",       # シクロプロピル基（環で回転制限）
-        "[*:1]C1CCCCC1",    # シクロヘキシル基（環で回転制限）
+        "[*:1]C",           # methyl (no rotatable bonds)
+        "[*:1]F",           # fluoro (no rotatable bonds)
+        "[*:1]Cl",          # chloro (no rotatable bonds)
+        "[*:1]C1CC1",       # cyclopropyl (restricted rotation by ring)
+        "[*:1]C1CCCCC1",    # cyclohexyl (restricted rotation by ring)
     ],
-    # ヘテロ原子数（NumHeteroatoms）
+    # NumHeteroatoms
     "add_ha": [
-        "[*:1]N",           # アミノ基（N追加）
-        "[*:1]O",           # ヒドロキシ基（O追加）
-        "[*:1]OC",          # メトキシ基（O追加）
-        "[*:1]F",           # フルオロ基（F追加）
-        "[*:1]S",           # チオール基（S追加）
+        "[*:1]N",           # amino (adds N)
+        "[*:1]O",           # hydroxy (adds O)
+        "[*:1]OC",          # methoxy (adds O)
+        "[*:1]F",           # fluoro (adds F)
+        "[*:1]S",           # thiol (adds S)
     ],
     "remove_ha": [
-        "[*:1]C",           # メチル基（ヘテロ原子なし）
-        "[*:1]CC",          # エチル基（ヘテロ原子なし）
-        "[*:1]C(C)C",       # イソプロピル基（ヘテロ原子なし）
-        "[*:1]c1ccccc1",    # フェニル基（ヘテロ原子なし）
-        "[*:1]C1CCCCC1",    # シクロヘキシル基（ヘテロ原子なし）
+        "[*:1]C",           # methyl (no heteroatoms)
+        "[*:1]CC",          # ethyl (no heteroatoms)
+        "[*:1]C(C)C",       # isopropyl (no heteroatoms)
+        "[*:1]c1ccccc1",    # phenyl (no heteroatoms)
+        "[*:1]C1CCCCC1",    # cyclohexyl (no heteroatoms)
     ],
 }
 
-# mode → (特徴量インデックス, 増減方向)
-# 特徴量インデックス: count_features の返り値に対応
+# mode → (descriptor index, direction)
+# Descriptor index corresponds to the return value of count_features():
 #   0=HBA, 1=HBD, 2=NumAromaticRings, 3=NumRotatableBonds, 4=NumHeteroatoms
-# 増減方向: +1=増加を期待, -1=減少を期待
+# Direction: +1 = increase expected, -1 = decrease expected
 _MODE_CONFIG = {
     "add_hbd":    (1, +1),
     "remove_hbd": (1, -1),
@@ -261,14 +266,14 @@ _MODE_CONFIG = {
 }
 
 def get_fragment_pool(mode, map_num):
-    """mode に対応する置換基テンプレートを map_num 付きで返す"""
+    """Return the fragment templates for the given mode with [*:1] replaced by [*:map_num]."""
     if mode not in _FRAGMENT_TEMPLATES:
-        raise ValueError(f"mode は {list(_MODE_CONFIG.keys())} のいずれかを指定してください")
+        raise ValueError(f"mode must be one of {list(_MODE_CONFIG.keys())}")
     return [t.replace("[*:1]", f"[*:{map_num}]") for t in _FRAGMENT_TEMPLATES[mode]]
 
 
 # ──────────────────────────────────────────────
-# 6. メイン：候補構造の提案
+# 6. Main function: propose candidate structures
 # ──────────────────────────────────────────────
 def propose_structures(
     parent_smiles,
@@ -281,32 +286,35 @@ def propose_structures(
     strict=False,
 ):
     """
-    親分子の特徴量を1つ増減させた候補構造を提案する。
-    変更しない部位には親分子の元の置換基をそのまま戻す。
+    Propose candidate structures in which one descriptor of the parent molecule
+    has been increased or decreased. Unmodified R-group positions retain the
+    original substituents from the parent molecule.
 
     Parameters
     ----------
-    parent_smiles    : 親分子のSMILES
-    mode             : 以下のいずれかを指定する
-                         "add_hbd"    : 水素結合ドナー数を増やす
-                         "remove_hbd" : 水素結合ドナー数を減らす
-                         "add_hba"    : 水素結合アクセプター数を増やす
-                         "remove_hba" : 水素結合アクセプター数を減らす
-                         "add_ar"     : 芳香環数を増やす
-                         "remove_ar"  : 芳香環数を減らす
-                         "add_rb"     : 回転可能結合数を増やす
-                         "remove_rb"  : 回転可能結合数を減らす
-                         "add_ha"     : ヘテロ原子数を増やす
-                         "remove_ha"  : ヘテロ原子数を減らす
-    max_cuts         : scaffoldに付与する置換可能部位数の上限（None=全部位）
-    max_candidates   : 返す最大候補数
-    shuffle_sites    : True のとき部位をランダム順で探索
-    shuffle_fragments: True のとき置換基候補をランダム順で探索
-    random_seed      : 乱数シード
-    strict           : True のとき、対象特徴量だけが変化し他は変化しない候補のみを返す
+    parent_smiles     : SMILES of the parent molecule
+    mode              : Transformation mode. One of the following:
+                          "add_hbd"    : increase hydrogen bond donor count
+                          "remove_hbd" : decrease hydrogen bond donor count
+                          "add_hba"    : increase hydrogen bond acceptor count
+                          "remove_hba" : decrease hydrogen bond acceptor count
+                          "add_ar"     : increase aromatic ring count
+                          "remove_ar"  : decrease aromatic ring count
+                          "add_rb"     : increase rotatable bond count
+                          "remove_rb"  : decrease rotatable bond count
+                          "add_ha"     : increase heteroatom count
+                          "remove_ha"  : decrease heteroatom count
+    max_cuts          : Maximum number of attachment points to label on the scaffold
+                        (None = use all boundary bonds)
+    max_candidates    : Maximum number of candidates to return
+    shuffle_sites     : If True, explore attachment sites in random order
+    shuffle_fragments : If True, explore fragments in random order
+    random_seed       : Random seed for reproducibility
+    strict            : If True, return only candidates in which exclusively the
+                        target descriptor has changed (all other descriptors unchanged)
     """
     if mode not in _MODE_CONFIG:
-        raise ValueError(f"mode は {list(_MODE_CONFIG.keys())} のいずれかを指定してください")
+        raise ValueError(f"mode must be one of {list(_MODE_CONFIG.keys())}")
 
     if random_seed is not None:
         random.seed(random_seed)
@@ -319,7 +327,7 @@ def propose_structures(
 
     parent_canon = Chem.MolToSmiles(parent_mol)
     parent_feats = count_features(parent_mol)
-    feat_idx, direction = _MODE_CONFIG[mode]  # 比較する特徴量と増減方向
+    feat_idx, direction = _MODE_CONFIG[mode]  # descriptor index and direction of change
 
     original_rgroups = get_original_rgroups(parent_smiles, core)
 
@@ -336,19 +344,19 @@ def propose_structures(
 
         for frag_smiles in pool:
             try:
-                # 1箇所だけ置換基を差し替えて分子を構築
+                # Replace only one R-group and build the new molecule
                 rgroups = {**original_rgroups, site: frag_smiles}
                 gen_mol = build_molecule(core_smiles, rgroups)
                 gen_canon = Chem.MolToSmiles(gen_mol)
 
-                # 親分子と同じ or 既出の場合はスキップ
+                # Skip if identical to parent or already seen
                 if gen_canon == parent_canon or gen_canon in seen:
                     continue
                 seen.add(gen_canon)
 
                 gen_feats = count_features(gen_mol)
-                # 対象特徴量が direction の方向に変化しているかチェック
-                # strict=True のときは他の特徴量が一切変化していないことも確認
+                # Check that the target descriptor changed in the intended direction.
+                # When strict=True, also verify that no other descriptor has changed.
                 other_unchanged = all(
                     gen_feats[i] == parent_feats[i]
                     for i in range(len(parent_feats)) if i != feat_idx
@@ -374,14 +382,14 @@ def propose_structures(
 
 
 # ──────────────────────────────────────────────
-# 7. 結果の表示
+# 7. Display results
 # ──────────────────────────────────────────────
 FEATURE_NAMES = ["NumHAcceptors", "NumHDonors", "NumAromaticRings", "NumRotatableBonds", "NumHeteroatoms"]
-# count_features の返り値の順番と対応
+# Corresponds to the order of values returned by count_features()
 
 def print_proposals(results):
     if not results:
-        print("有効な候補が見つかりませんでした")
+        print("No valid candidates found.")
         return
 
     for i, rec in enumerate(results, start=1):
