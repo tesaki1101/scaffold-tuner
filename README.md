@@ -48,10 +48,10 @@ pip install -e .
 Google Colabのノートブックの最初のセルに以下を貼り付けて実行してください：
 
 ```python
-# RDKitのインストール
+# Install RDKit
 !pip install rdkit
 
-# ScaffoldTunerのインストール
+# Install ScaffoldTuner
 !pip install git+https://github.com/tesaki1101/scaffold-tuner.git
 ```
 
