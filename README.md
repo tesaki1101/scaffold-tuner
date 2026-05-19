@@ -29,10 +29,50 @@ conda install -c conda-forge rdkit
 
 ## Installation
 
+### Option 1: Install directly from GitHub (recommended)
+
+```bash
+pip install git+https://github.com/tesaki1101/scaffold-tuner.git
+```
+
+### Option 2: Clone and install locally
+
 ```bash
 git clone https://github.com/tesaki1101/scaffold-tuner.git
 cd scaffold-tuner
+pip install -e .
 ```
+
+### Option 3: Google Colab
+
+Google Colabのノートブックの最初のセルに以下を貼り付けて実行してください：
+
+```python
+# RDKitのインストール
+!pip install rdkit
+
+# ScaffoldTunerのインストール
+!pip install git+https://github.com/tesaki1101/scaffold-tuner.git
+```
+
+インストール後、そのまま続けて使えます：
+
+```python
+from scaffold_tuner.scaffold_intervention import propose_structures, print_proposals
+
+parent_smiles = "c1ccc(NC(=O)c2ccccc2)cc1"
+
+results = propose_structures(
+    parent_smiles=parent_smiles,
+    mode="add_hbd",
+    max_candidates=5,
+    random_seed=42,
+)
+
+print_proposals(results)
+```
+
+> **Note:** Google Colabはセッションが終了するとインストールした内容がリセットされます。毎回セッションの最初にインストールのセルを実行してください。
 
 ---
 
@@ -106,6 +146,8 @@ scaffold-tuner/
 ├── README.md
 ├── LICENSE
 ├── .gitignore
+├── requirements.txt
+├── pyproject.toml
 └── scaffold_tuner/
     ├── __init__.py
     └── scaffold_intervention.py
