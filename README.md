@@ -45,7 +45,7 @@ pip install -e .
 
 ### Option 3: Google Colab
 
-Google Colabのノートブックの最初のセルに以下を貼り付けて実行してください：
+Paste the following into the first cell of your Google Colab notebook and run it:
 
 ```python
 # Install RDKit
@@ -55,7 +55,7 @@ Google Colabのノートブックの最初のセルに以下を貼り付けて�
 !pip install git+https://github.com/tesaki1101/scaffold-tuner.git
 ```
 
-インストール後、そのまま続けて使えます：
+After installation, you can use the package in the same session:
 
 ```python
 from scaffold_tuner.scaffold_intervention import propose_structures, print_proposals
@@ -72,7 +72,7 @@ results = propose_structures(
 print_proposals(results)
 ```
 
-> **Note:** Google Colabはセッションが終了するとインストールした内容がリセットされます。毎回セッションの最初にインストールのセルを実行してください。
+> **Note:** In Google Colab, all installed packages are reset when the session ends. Run the installation cell at the beginning of each new session.
 
 ---
 
