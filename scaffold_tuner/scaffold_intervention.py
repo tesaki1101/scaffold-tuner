@@ -401,3 +401,13 @@ def print_proposals(results):
         print(f"  parent   : {rec['parent_features']}")
         print(f"  generated: {rec['generated_features']}")
         print()
+
+
+# ──────────────────────────────────────────────
+# 8. Display version information
+# ──────────────────────────────────────────────
+from scaffold_tuner import __version__
+
+def get_version():
+    """Return the version of scaffold-tuner."""
+    return __version__
