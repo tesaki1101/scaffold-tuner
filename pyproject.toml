@@ -1,10 +1,10 @@
 [build-system]
 requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "scaffold-tuner"
-version = "1.0.0"
+version = "0.1.0"
 description = "A toolkit for proposing structurally modified drug-like molecules based on Murcko scaffolds"
 readme = "README.md"
 license = { file = "LICENSE" }
