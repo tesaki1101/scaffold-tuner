@@ -120,6 +120,115 @@ def get_original_rgroups(parent_smiles, core_with_labels):
 # ──────────────────────────────────────────────
 # 4. Fragment attachment
 # ──────────────────────────────────────────────
+
+def get_mol_wt(mol):
+    """Return the molecular weight (MolWt) of mol."""
+    return Descriptors.MolWt(mol)
+
+
+def _find_extension_atom(frag_mol, exclude_atom_idx):
+    """
+    Find the best heavy atom in frag_mol on which to graft an additional
+    substituent, WITHOUT removing any existing atom.
+
+    A valid extension atom must:
+      - not be the dummy atom that connects this fragment to the scaffold core
+        (exclude_atom_idx)
+      - not be a dummy atom itself
+      - not be an explicit hydrogen
+      - still have at least one free (implicit or explicit) H to replace
+
+    Among valid candidates, the one topologically farthest from
+    exclude_atom_idx is chosen, since extending at the far end of the
+    existing substituent (rather than right next to the scaffold) causes
+    the least disruption to the substituent's original role.
+
+    Returns the atom index, or None if no valid position exists
+    (fragment is already fully substituted).
+    """
+    candidates = [
+        atom.GetIdx()
+        for atom in frag_mol.GetAtoms()
+        if atom.GetIdx() != exclude_atom_idx
+        and atom.GetAtomicNum() > 1          # skip dummy atoms (0) and explicit H (1)
+        and atom.GetTotalNumHs() > 0          # must have a free H to replace
+    ]
+    if not candidates:
+        return None
+
+    dist_matrix = Chem.GetDistanceMatrix(frag_mol)
+    candidates.sort(key=lambda idx: -dist_matrix[exclude_atom_idx][idx])
+    return candidates[0]
+
+
+def build_extended_rgroup_smiles(original_frag_smiles, addition_template, map_num):
+    """
+    Build a new R-group SMILES for attachment point map_num that adds the
+    functional group described by addition_template (e.g. "[*:1]N" for an
+    amino group) WITHOUT deleting any atom of the existing substituent.
+
+    This guarantees the resulting substituent's molecular weight and atom
+    count are >= the original substituent's, which in turn guarantees the
+    whole generated molecule's molecular weight is >= the parent's.
+
+    Two cases:
+      1. The site is currently unsubstituted (original fragment is just
+         "[*:map_num][H]"). Nothing of substance would be lost, so the
+         addition group simply becomes the new substituent.
+      2. The site already carries a real substituent. The addition group is
+         grafted onto the most distal atom of that substituent that still
+         has a free H, leaving every original atom in place.
+
+    Returns None if case 2 applies but the substituent has no free position
+    left to extend (fully substituted); the caller should then skip this
+    candidate rather than fall back to a destructive replacement.
+    """
+    frag_mol = Chem.MolFromSmiles(original_frag_smiles)
+    if frag_mol is None:
+        raise ValueError(f"Invalid original fragment SMILES: {original_frag_smiles}")
+
+    core_dummy_idx, _, _ = _get_dummy_info(frag_mol, map_num)
+
+    # Case 1: unsubstituted position -> addition group becomes the substituent.
+    has_real_substituent = any(
+        atom.GetIdx() != core_dummy_idx and atom.GetAtomicNum() > 1
+        for atom in frag_mol.GetAtoms()
+    )
+    if not has_real_substituent:
+        return addition_template.replace("[*:1]", f"[*:{map_num}]")
+
+    # Case 2: graft the addition group onto the existing substituent.
+    attach_idx = _find_extension_atom(frag_mol, exclude_atom_idx=core_dummy_idx)
+    if attach_idx is None:
+        return None  # fully substituted; cannot add without deleting atoms
+
+    # Locate the addition template's own dummy atom by atomic number (0),
+    # NOT by atom map number. The map number inside addition_template may be
+    # anything (e.g. "[*:2]N" when this site's label is 2), and could even
+    # collide with a map number already used in frag_mol once combined, so
+    # matching by map number here would be unreliable.
+    addition_mol = Chem.MolFromSmiles(addition_template)
+    if addition_mol is None:
+        raise ValueError(f"Invalid addition template SMILES: {addition_template}")
+    add_dummy_idx = next(
+        (a.GetIdx() for a in addition_mol.GetAtoms() if a.GetAtomicNum() == 0), None
+    )
+    if add_dummy_idx is None:
+        raise ValueError(f"No dummy atom found in addition template: {addition_template}")
+    add_nbr_atom = addition_mol.GetAtomWithIdx(add_dummy_idx).GetNeighbors()[0]
+    add_nbr_idx = add_nbr_atom.GetIdx()
+    add_bond_type = addition_mol.GetBondBetweenAtoms(add_dummy_idx, add_nbr_idx).GetBondType()
+
+    offset = frag_mol.GetNumAtoms()
+    combined = Chem.CombineMols(frag_mol, addition_mol)
+    emol = Chem.EditableMol(combined)
+    emol.AddBond(attach_idx, add_nbr_idx + offset, order=add_bond_type)
+    emol.RemoveAtom(add_dummy_idx + offset)  # only the addition's own dummy is removed
+    mol = emol.GetMol()
+    Chem.SanitizeMol(mol)
+    return Chem.MolToSmiles(mol)
+
+
 def _get_dummy_info(mol, map_num):
     """Find the dummy atom [*:map_num] and return (dummy_idx, neighbor_idx, bond_type)."""
     for atom in mol.GetAtoms():
@@ -312,6 +421,21 @@ def propose_structures(
     random_seed       : Random seed for reproducibility
     strict            : If True, return only candidates in which exclusively the
                         target descriptor has changed (all other descriptors unchanged)
+
+    Notes on molecular weight
+    -------------------------
+    For "add_*" modes (direction == +1), the target functional group is
+    grafted onto the existing substituent via build_extended_rgroup_smiles()
+    instead of replacing the substituent outright. This means no atom of the
+    original molecule is ever deleted for these modes, so the generated
+    molecule's molecular weight can only stay equal to or increase relative
+    to the parent -- it can never decrease. As a defensive second layer, any
+    candidate whose molecular weight is lower than the parent's is also
+    explicitly rejected below.
+
+    For "remove_*" modes (direction == -1), the previous replace-based
+    behavior is kept unchanged, since shrinking/removing a feature is
+    expected to reduce molecular weight as well.
     """
     if mode not in _MODE_CONFIG:
         raise ValueError(f"mode must be one of {list(_MODE_CONFIG.keys())}")
@@ -327,6 +451,7 @@ def propose_structures(
 
     parent_canon = Chem.MolToSmiles(parent_mol)
     parent_feats = count_features(parent_mol)
+    parent_mw = get_mol_wt(parent_mol)
     feat_idx, direction = _MODE_CONFIG[mode]  # descriptor index and direction of change
 
     original_rgroups = get_original_rgroups(parent_smiles, core)
@@ -344,8 +469,20 @@ def propose_structures(
 
         for frag_smiles in pool:
             try:
-                # Replace only one R-group and build the new molecule
-                rgroups = {**original_rgroups, site: frag_smiles}
+                if direction > 0:
+                    # "add_*" mode: extend the existing substituent instead of
+                    # replacing it, so no atom is ever lost.
+                    new_frag_smiles = build_extended_rgroup_smiles(
+                        original_rgroups[site], frag_smiles, label
+                    )
+                    if new_frag_smiles is None:
+                        continue  # site fully substituted, cannot extend
+                    rgroups = {**original_rgroups, site: new_frag_smiles}
+                else:
+                    # "remove_*" mode: replacing with a smaller group is the
+                    # intended behavior (shrinking/removing a feature).
+                    rgroups = {**original_rgroups, site: frag_smiles}
+
                 gen_mol = build_molecule(core_smiles, rgroups)
                 gen_canon = Chem.MolToSmiles(gen_mol)
 
@@ -355,6 +492,13 @@ def propose_structures(
                 seen.add(gen_canon)
 
                 gen_feats = count_features(gen_mol)
+                gen_mw = get_mol_wt(gen_mol)
+
+                # Safety net: for "add_*" modes the molecular weight must
+                # never decrease relative to the parent.
+                if direction > 0 and gen_mw < parent_mw:
+                    continue
+
                 # Check that the target descriptor changed in the intended direction.
                 # When strict=True, also verify that no other descriptor has changed.
                 other_unchanged = all(
@@ -371,6 +515,8 @@ def propose_structures(
                         "generated_smiles": gen_canon,
                         "parent_features": parent_feats,
                         "generated_features": gen_feats,
+                        "parent_mw": parent_mw,
+                        "generated_mw": gen_mw,
                     })
             except Exception:
                 continue
@@ -398,8 +544,8 @@ def print_proposals(results):
         print(f"parent SMILES   : {rec['parent_smiles']}")
         print(f"generated SMILES: {rec['generated_smiles']}")
         print(f"features {FEATURE_NAMES}")
-        print(f"  parent   : {rec['parent_features']}")
-        print(f"  generated: {rec['generated_features']}")
+        print(f"  parent   : {rec['parent_features']}  MW={rec.get('parent_mw', float('nan')):.2f}")
+        print(f"  generated: {rec['generated_features']}  MW={rec.get('generated_mw', float('nan')):.2f}")
         print()
 
 
