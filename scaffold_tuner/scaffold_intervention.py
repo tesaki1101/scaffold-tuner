@@ -515,8 +515,6 @@ def propose_structures(
                         "generated_smiles": gen_canon,
                         "parent_features": parent_feats,
                         "generated_features": gen_feats,
-                        "parent_mw": parent_mw,
-                        "generated_mw": gen_mw,
                     })
             except Exception:
                 continue
@@ -544,8 +542,8 @@ def print_proposals(results):
         print(f"parent SMILES   : {rec['parent_smiles']}")
         print(f"generated SMILES: {rec['generated_smiles']}")
         print(f"features {FEATURE_NAMES}")
-        print(f"  parent   : {rec['parent_features']}  MW={rec.get('parent_mw', float('nan')):.2f}")
-        print(f"  generated: {rec['generated_features']}  MW={rec.get('generated_mw', float('nan')):.2f}")
+        print(f"  parent   : {rec['parent_features']}")
+        print(f"  generated: {rec['generated_features']}")
         print()
 
 
