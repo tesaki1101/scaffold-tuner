@@ -287,7 +287,16 @@ _FRAGMENT_TEMPLATES = {
         "[*:1]N",           # amino
         "[*:1]NC",          # methylamino
         "[*:1]O",           # hydroxy
-        "[*:1]NS(=O)(=O)C", # sulfonamide-like
+        # NOTE: a sulfonamide template ("[*:1]NS(=O)(=O)C") used to live here,
+        # but it was removed: it is equivalent to composing two separate,
+        # minimal single-feature edits -- (1) add_hbd with "[*:1]N" to create
+        # an NH2, then (2) add_hba with "[*:1]S(=O)(=O)C" to sulfonylate that
+        # new NH2 -- and bundling both into one template caused a single
+        # add_hbd call to also shift NumHAcceptors, NumRotatableBonds, and
+        # NumHeteroatoms far more than the other add_hbd templates do. Running
+        # scaffold-tuner twice (add_hbd, then add_hba) reproduces the exact
+        # same sulfonamide structure while keeping each call to a single,
+        # minimal descriptor change. See "[*:1]S(=O)(=O)C" under add_hba.
     ],
     "remove_hbd": [
         "[*:1]C",           # methyl (no HBD)
@@ -303,6 +312,7 @@ _FRAGMENT_TEMPLATES = {
         "[*:1]C#N",         # cyano
         "[*:1]C(=O)C",      # keto-like
         "[*:1]N(C)C",       # tertiary amine
+        "[*:1]S(=O)(=O)C",  # methylsulfonyl (moved here from add_hbd; see note above)
     ],
     "remove_hba": [
         "[*:1]C",           # methyl (no HBA)
