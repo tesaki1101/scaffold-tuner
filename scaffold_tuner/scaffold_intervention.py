@@ -128,29 +128,41 @@ def get_mol_wt(mol):
 
 def _find_extension_atom(frag_mol, exclude_atom_idx):
     """
-    Find the best heavy atom in frag_mol on which to graft an additional
+    Find the best atom in frag_mol on which to graft an additional
     substituent, WITHOUT removing any existing atom.
 
     A valid extension atom must:
       - not be the dummy atom that connects this fragment to the scaffold core
         (exclude_atom_idx)
-      - not be a dummy atom itself
-      - not be an explicit hydrogen
+      - be a CARBON atom (atomic number 6)
       - still have at least one free (implicit or explicit) H to replace
 
-    Among valid candidates, the one topologically farthest from
+    Restricting extension to carbon atoms is deliberate: if we allowed
+    grafting onto an existing heteroatom (e.g. the N of a primary amine, or
+    the O of an ether), the new group would bond directly to that
+    heteroatom, forming an unintended heteroatom-heteroatom bond -- for
+    example turning -NH2 into a hydrazine (-NH-NH2) or an ether oxygen into
+    an N-O linkage. These motifs are chemically real but are treated as
+    structural alerts in drug design (metabolic instability, mutagenicity
+    concerns for hydrazines, etc.) and are not what "add one HBD/HBA in a
+    minimal, drug-like way" is meant to produce. Requiring a carbon
+    extension point avoids generating them as an unintended side effect of
+    picking whichever atom happens to be topologically farthest.
+
+    Among valid (carbon) candidates, the one topologically farthest from
     exclude_atom_idx is chosen, since extending at the far end of the
     existing substituent (rather than right next to the scaffold) causes
     the least disruption to the substituent's original role.
 
-    Returns the atom index, or None if no valid position exists
-    (fragment is already fully substituted).
+    Returns the atom index, or None if no valid position exists (e.g. the
+    substituent is fully substituted, or is a bare heteroatom like -NH2
+    with no carbon to extend from).
     """
     candidates = [
         atom.GetIdx()
         for atom in frag_mol.GetAtoms()
         if atom.GetIdx() != exclude_atom_idx
-        and atom.GetAtomicNum() > 1          # skip dummy atoms (0) and explicit H (1)
+        and atom.GetAtomicNum() == 6          # carbon only -- see docstring
         and atom.GetTotalNumHs() > 0          # must have a free H to replace
     ]
     if not candidates:
