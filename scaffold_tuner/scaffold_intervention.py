@@ -299,6 +299,12 @@ _FRAGMENT_TEMPLATES = {
         "[*:1]N",           # amino
         "[*:1]NC",          # methylamino
         "[*:1]O",           # hydroxy
+        "[*:1]c1ccc[nH]1",        # 3-pyrrolyl (aromatic ring N-H)
+        "[*:1]c1ccc2[nH]ccc2c1",  # indolyl (aromatic ring N-H)
+        # NOTE: unlike the templates above, the aromatic N-H in pyrrole/
+        # indole is conjugated into the ring and is not counted as an
+        # H-bond acceptor by RDKit (Lipinski.NumHAcceptors), so these two
+        # increase NumHDonors without also increasing NumHAcceptors.
         # NOTE: a sulfonamide template ("[*:1]NS(=O)(=O)C") used to live here,
         # but it was removed: it is equivalent to composing two separate,
         # minimal single-feature edits -- (1) add_hbd with "[*:1]N" to create
