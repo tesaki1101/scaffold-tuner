@@ -325,7 +325,6 @@ _FRAGMENT_TEMPLATES = {
     ],
     # HBA (hydrogen bond acceptors)
     "add_hba": [
-        "[*:1]F",           # fluoro
         "[*:1]OC",          # methoxy
         "[*:1]C#N",         # cyano
         "[*:1]C(=O)C",      # keto-like
